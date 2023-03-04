@@ -35,6 +35,8 @@ Permission to license under GPL obtained by email from Björn Lisper */
 #include <string.h>
 #include "support.h"
 
+#include <stdio.h>
+
 #if USE_VECTOR==1
 #include <riscv_vector.h>
 #endif
@@ -444,7 +446,6 @@ int benchmark (void)
     return benchmark_body (LOCAL_SCALE_FACTOR * CPU_MHZ);
 }
 
-#include <stdio.h>
 static int __attribute__ ((noinline)) benchmark_body (int rpt)
 {
     int j;
