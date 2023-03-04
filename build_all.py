@@ -105,6 +105,9 @@ def build_parser():
         '--cpu-mhz', type=int, help='Processor clock speed in MHz'
     )
     parser.add_argument(
+        '--use-vector', type=int, help='Use vector'
+    )
+    parser.add_argument(
         '--warmup-heat',
         type=int,
         help='Number of warmup loops to execute before benchmark',
@@ -251,6 +254,7 @@ def populate_defaults():
     conf['user_libs'] = {}
     conf['dummy_libs'] = {}
     conf['cpu_mhz'] = 1
+    conf['use_vector'] = 0
     conf['warmup_heat'] = 1
     conf['timeout'] = 5
 
@@ -320,6 +324,8 @@ def populate_user_defs(conf, args):
 
     if args.cpu_mhz:
         conf['cpu_mhz'] = args.cpu_mhz
+    if args.use_vector:
+        conf['use_vector'] = args.use_vector
     if args.warmup_heat:
         conf['warmup_heat'] = args.warmup_heat
     if args.timeout:
@@ -347,7 +353,7 @@ def add_internal_flags():
         flag = gp['cc_incdir_pattern'].format(gp[dirname]).split()
         gp['cflags'].extend(flag)
 
-    for dirname in ['cpu_mhz', 'warmup_heat']:
+    for dirname in ['cpu_mhz', 'use_vector', 'warmup_heat']:
         dir_u = dirname.upper()
         flagstr = gp['cc_define2_pattern'].format(dir_u, gp[dirname])
         flag = flagstr.split()

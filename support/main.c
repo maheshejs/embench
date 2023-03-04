@@ -12,7 +12,7 @@
    SPDX-License-Identifier: GPL-3.0-or-later */
 
 #include "support.h"
-
+#include <stdio.h>
 
 int __attribute__ ((used))
 main (int argc __attribute__ ((unused)),
@@ -33,6 +33,11 @@ main (int argc __attribute__ ((unused)),
   /* bmarks that use arrays will check a global array rather than int result */
 
   correct = verify_benchmark (result);
+
+  if (correct == 1)
+      printf("CORRECT\n");
+  else
+      printf("FAILED\n");
 
   return (!correct);
 
