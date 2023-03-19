@@ -79,14 +79,17 @@
 
 
 /*
-** Benchmark Suite for Real-Time Applications, by Sung-Soo Lim
-**
-**    III-4. ludcmp.c : Simultaneous Linear Equations by LU Decomposition
-**                 (from the book C Programming for EEs by Hyun Soon Ahn)
-*/
+ ** Benchmark Suite for Real-Time Applications, by Sung-Soo Lim
+ **
+ **    III-4. ludcmp.c : Simultaneous Linear Equations by LU Decomposition
+ **                 (from the book C Programming for EEs by Hyun Soon Ahn)
+ */
 
 #include <string.h>
 #include "support.h"
+#include <riscv_vector.h>
+#include <stdio.h>
+#include <stdlib.h>
 
 /* This scale factor will be changed to equalise the runtime of the
    benchmarks. */
@@ -94,6 +97,7 @@
 
 
 long int a[20][20], b[20], x[20];
+long int table[20][20];
 
 int ludcmp(int nmax, int n);
 
@@ -111,126 +115,236 @@ int ludcmp(int nmax, int n);
 volatile int chkerr;
 
 
-int
-verify_benchmark (int res)
+int verify_benchmark (int res)
 {
-  long int x_ref[20] =
+    long int x_ref[20] =
     { 0L, 0L, 1L, 1L, 1L, 2L, 0L, 0L, 0L, 0L,
-      0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L
+        0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L
     };
 
-  return (0 == memcmp (x, x_ref, 20 * sizeof (x[0]))) && (0 == res);
+    return (0 == memcmp (x, x_ref, 20 * sizeof (x[0]))) && (0 == res);
 }
 
 
-void
-initialise_benchmark (void)
+void initialise_benchmark (void)
 {
 }
 
 
 static int benchmark_body (int  rpt);
 
-void
-warm_caches (int  heat)
+void warm_caches (int  heat)
 {
-  int  res = benchmark_body (heat);
+    int  res = benchmark_body (heat);
 
-  return;
+    return;
 }
 
 
-int
-benchmark (void)
+int benchmark (void)
 {
-  return benchmark_body (LOCAL_SCALE_FACTOR * CPU_MHZ);
+    return benchmark_body (LOCAL_SCALE_FACTOR * CPU_MHZ);
 
 }
 
 
-static int __attribute__ ((noinline))
-benchmark_body (int rpt)
+static int __attribute__ ((noinline)) benchmark_body (int rpt)
 {
-  int  k;
+    int  k;
 
-  for (k = 0; k < rpt; k++)
+    for (k = 0; k < rpt; k++)
     {
-      int      i, j, nmax = 20, n = 5;
-      long int /* eps, */ w;
+        int      i, j, nmax = 20, n = 5;
+        long int /* eps, */ w;
 
-      /* eps = 1.0e-6; */
+        /* eps = 1.0e-6; */
 
-      /* Init loop */
-      for(i = 0; i <= n; i++)
-	{
-	  w = 0.0;              /* data to fill in cells */
-	  for(j = 0; j <= n; j++)
-	    {
-	      a[i][j] = (i + 1) + (j + 1);
-	      if(i == j)            /* only once per loop pass */
-		a[i][j] *= 2.0;
-	      w += a[i][j];
-	    }
-	  b[i] = w;
-	}
+        /* Init loop */
+        for(i = 0; i <= n; i++)
+        {
+            w = 0.0;              /* data to fill in cells */
+            for(j = 0; j <= n; j++)
+            {
+                a[i][j] = (i + 1) + (j + 1);
+                if(i == j)            /* only once per loop pass */
+                    a[i][j] *= 2.0;
+                w += a[i][j];
+            }
+            b[i] = w;
+        }
 
-      /*  chkerr = ludcmp(nmax, n, eps); */
-      chkerr = ludcmp(nmax,n);
+        /*  chkerr = ludcmp(nmax, n, eps); */
+        chkerr = ludcmp(nmax,n);
     }
 
-  return chkerr;
+    return chkerr;
 }
 
 int ludcmp(int nmax, int n)
 {
-  int i, j, k;
-  long w, y[100];
+    size_t vl = vsetvl_e32m4(n+1);
+    vint32m4_t vu, vv, vz;
 
-  /* if(n > 99 || eps <= 0.0) return(999); */
-  for(i = 0; i < n; i++)
+    int i, j, k;
+    long w, y[100];
+    long int value;
+
+    for(i = 0; i < n; i++)
     {
-      /* if(fabs(a[i][i]) <= eps) return(1); */
-      for(j = i+1; j <= n; j++) /* triangular loop vs. i */
+        vu = vmv_v_x_i32m4(0, vl);
+        for (j = 0; j < i; j++)
         {
-          w = a[j][i];
-          if(i != 0)            /* sub-loop is conditional, done
-                                   all iterations except first of the
-                                   OUTER loop */
-            for(k = 0; k < i; k++)
-              w -= a[j][k] * a[k][i];
-          a[j][i] = w / a[i][i];
+            value = a[j][i];
+            vv = vlse32_v_i32m4(&a[0][j], nmax * sizeof(long int), vl);
+            vv = vslidedown_vx_i32m4_ta(vv, vv, i + 1, vl);
+            vv = vmul_vx_i32m4_ta(vv, value, vl);
+            vu = vadd_vv_i32m4_ta(vu, vv, vl);
         }
-      for(j = i+1; j <= n; j++) /* triangular loop vs. i */
+        vv = vlse32_v_i32m4(&a[0][i], nmax * sizeof(long int), vl);
+        vv = vslidedown_vx_i32m4_ta(vv, vv, i + 1, vl);
+        vu = vsub_vv_i32m4_ta(vv, vu, vl);
+        vu = vdiv_vx_i32m4_ta(vu, a[i][i], vl);
+        vsse32_v_i32m4(&a[i+1][i], nmax * sizeof(long int), vu, vl);
+
+        vu = vmv_v_x_i32m4(0, vl);
+        for (j = 0; j < i + 1; j++)
         {
-          w = a[i+1][j];
-          for(k = 0; k <= i; k++) /* triangular loop vs. i */
-            w -= a[i+1][k] * a[k][j];
-          a[i+1][j] = w;
+            value = a[i+1][j];
+            vv = vle32_v_i32m4(&a[j][0], vl);
+            vv = vslidedown_vx_i32m4_ta(vv, vv, i + 1, vl);
+            vv = vmul_vx_i32m4_ta(vv, value, vl);
+            vu = vadd_vv_i32m4_ta(vu, vv, vl);
         }
+        vv = vle32_v_i32m4(&a[i+1][0], vl);
+        vv = vslidedown_vx_i32m4_ta(vv, vv, i + 1, vl);
+        vu = vsub_vv_i32m4_ta(vv, vu, vl);
+        vse32_v_i32m4(&a[i+1][i+1], vu, vl);
     }
-  y[0] = b[0];
-  for(i = 1; i <= n; i++)       /* iterates n times */
+
+    /*
+       y[0] = b[0];
+       for(i = 1; i <= n; i++)       // iterates n times //
+       {
+       w = b[i];
+       for(j = 0; j < i; j++)    // triangular sub loop //
+       w -= a[i][j] * y[j];
+       y[i] = w;
+       }
+       */
+
+    i = 0;
+    table[0][i] = b[0];
+    for(j = i+1; j <= n; j++)       // iterates n times //
     {
-      w = b[i];
-      for(j = 0; j < i; j++)    /* triangular sub loop */
-        w -= a[i][j] * y[j];
-      y[i] = w;
+        long int val = 0;
+        for(k = 0; k < j; k++)    // triangular sub loop //
+        {    
+            printf("(%d, %d) x (%d, %d) | ", j, k, k, i);
+            val += a[j][k] * table[k][i];
+        }
+        printf("= (%d, %d)\n", j, i);
+        table[j][i] = val + b[j];
     }
-  x[n] = y[n] / a[n][n];
-  for(i = n-1; i >= 0; i--)     /* iterates n times */
+
+    /*
+       vu = vle32_v_i32m4(b, vl);
+       for (i = 0; i < n; i++)
+       {
+    // value = table[i][0]; ??
+    vv = vlse32_v_i32m4(&a[0][i], nmax * sizeof(long int), vl);
+    vv = vmul_vx_i32m4_ta(vv, value, vl);
+
+
+    vz = vmv_v_x_i32m4(value, vl);
+    // ? slide vz
+    vv = vmul_vv_i32m4_ta(vv, vz, vl);
+    vu = vadd_vv_i32m4_ta(vu, vv, vl);
+    v = vslide1up_vx_i32m4_ta(vw, 0, vl);
+    }
+    */
+
+
+    /*
+       x[n] = y[n] / a[n][n];
+       for(i = n-1; i >= 0; i--)     // iterates n times //
+       {
+       w = y[i];
+       for(j = i+1; j <= n; j++) // triangular sub loop //
+       w -= a[i][j] * x[j];
+       x[i] = w / a[i][i] ;
+       }
+       */
+
+    printf("--SECOND--\n");
+    i = 0;
+    table[n][i] = table[n][i] / a[n][n];
+    for(j = 0 ; j < n; j++)     // iterates n times //
     {
-      w = y[i];
-      for(j = i+1; j <= n; j++) /* triangular sub loop */
-        w -= a[i][j] * x[j];
-      x[i] = w / a[i][i] ;
+        long int val = 0;
+        for(k = n; k >= j+1; k--) // triangular sub loop //
+        {
+            printf("(%d, %d) x (%d, %d) | ", j, k, k, i);
+            val += a[j][k] * table[k][i];
+        }
+        printf("= (%d, %d)\n", j, i);
+        table[j][i] = (table[j][i] - val) / a[j][j] ;
     }
-  return(0);
+
+    exit(0);
+
+    //size_t vl;
+    vl = vsetvl_e32m4(n + 1);
+    vint32m4_t vw = vle32_v_i32m4(b, vl);
+    vint32m4_t vy = vmv_v_x_i32m4_ta(0, vl);
+    vw = vslide1down_vx_i32m4_ta(vw, 0, vl);
+    vy = vslide1down_vx_i32m4_ta(vy, b[0], vl);
+    vint32m4_t va, vm;
+    vint32m1_t vr;
+    long int sr, sw;
+    for(i = 1; i <= n; i++)
+    {
+        va = vle32_v_i32m4(a[i], vl);
+        va = vslideup_vx_i32m4_ta(va, va, vl - i, vl);
+        vm = vmul_vv_i32m4_ta(va, vy, vl);
+        vr = vmv_s_x_i32m1_ta(0, vl);
+        vr = vredsum_vs_i32m4_i32m1_ta(vm, vr, vl);
+        sr = vmv_x_s_i32m1_i32(vr);
+        sw = vmv_x_s_i32m4_i32(vw);
+        vy = vslide1down_vx_i32m4_ta(vy, sw - sr, vl);
+        vw = vslide1down_vx_i32m4_ta(vw, 0, vl);
+    }
+    vse32_v_i32m4(y, vy, vl);
+
+    vw = vy;
+    vint32m4_t vx = vmv_v_x_i32m4_ta(0, vl);
+    vw = vslide1up_vx_i32m4_ta(vw, 0, vl);
+    vx = vslide1up_vx_i32m4_ta(vx, y[n] / a[n][n], vl);
+    vint32m4_t vt;
+    long int sa;
+    for(i = n - 1; i >= 0; i--)
+    {
+        va = vle32_v_i32m4(a[i], vl);
+        va = vslidedown_vx_i32m4_ta(va, va, i, vl);
+        sa = vmv_x_s_i32m4_i32(va);
+        va = vslide1down_vx_i32m4_ta(va, 0, vl);
+        vm = vmul_vv_i32m4_ta(va, vx, vl);
+        vr = vmv_s_x_i32m1_ta(0, vl);
+        vr = vredsum_vs_i32m4_i32m1_ta(vm, vr, vl);
+        sr = vmv_x_s_i32m1_i32(vr);
+        vt = vslidedown_vx_i32m4_ta(vt, vw, vl - 1, vl);
+        sw = vmv_x_s_i32m4_i32(vt);
+        vx = vslide1up_vx_i32m4_ta(vx, (sw - sr) / sa, vl);
+        vw = vslide1up_vx_i32m4_ta(vw, 0, vl);
+    }
+    vse32_v_i32m4(x, vx, vl);
+
+    return(0);
 }
 
 
 /*
    Local Variables:
-   mode: C
-   c-file-style: "gnu"
-   End:
+mode: C
+c-file-style: "gnu"
+End:
 */
