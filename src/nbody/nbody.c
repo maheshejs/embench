@@ -61,7 +61,7 @@ OF THE POSSIBILITY OF SUCH DAMAGE.  */
 
 #include "support.h"
 
-#include <stdio.h>
+/* #include <stdio.h> */
 
 #if USE_VECTOR==1
 #include <riscv_vector.h>
