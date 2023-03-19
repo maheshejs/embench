@@ -35,7 +35,7 @@ Permission to license under GPL obtained by email from Björn Lisper */
 #include <string.h>
 #include "support.h"
 
-#include <stdio.h>
+/* #include <stdio.h> */
 
 #if USE_VECTOR==1
 #include <riscv_vector.h>
@@ -424,9 +424,9 @@ static long int output[200];
 void initialise_benchmark (void)
 {
 #if USE_VECTOR==0
-    printf("SCALAR VERSION\n");
+    /* printf("SCALAR VERSION\n"); */
 #else
-    printf("VECTOR VERSION\n");
+    /* printf("VECTOR VERSION\n"); */
 #endif
 }
 

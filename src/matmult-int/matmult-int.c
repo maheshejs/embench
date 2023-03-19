@@ -36,7 +36,7 @@ Permission to license under GPL obtained by email from Björn Lisper
 #include <string.h>
 #include "support.h"
 
-#include <stdio.h>
+/* #include <stdio.h> */
 
 #if USE_VECTOR==1
 #include <riscv_vector.h>
@@ -166,9 +166,9 @@ benchmark_body (int rpt)
 void initialise_benchmark ()
 {
 #if USE_VECTOR==0
-    printf("SCALAR VERSION\n");
+    /* printf("SCALAR VERSION\n"); */
 #else
-    printf("VECTOR VERSION\n");
+    /* printf("VECTOR VERSION\n"); */
 #endif
     InitSeed ();
     int OuterIndex, InnerIndex;
