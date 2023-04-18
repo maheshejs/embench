@@ -528,7 +528,7 @@ static int __attribute__ ((noinline)) benchmark_body (int rpt)
         d = latsynth (a, b, N, d);
         e = d; // codebook
         iir1 (a, b, &output[100], output);
-        jpegdct (a, b);
+        //jpegdct (a, b);
 #else
         v_vec_mpy1 (a, b, c);
         c = v_mac (a, b, (long int) c, (long int *) output);
@@ -537,7 +537,7 @@ static int __attribute__ ((noinline)) benchmark_body (int rpt)
         d = v_latsynth (a, b, N, d);
         e = d; // codebook
         v_iir1 (a, b, &output[100], output);
-        v_jpegdct (a, b);
+        //v_jpegdct (a, b);
 #endif
     }
     return 0;

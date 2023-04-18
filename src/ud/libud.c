@@ -87,9 +87,11 @@
 
 #include <string.h>
 #include "support.h"
+/* #include <stdio.h> */
+
+#if USE_VECTOR==1
 #include <riscv_vector.h>
-#include <stdio.h>
-#include <stdlib.h>
+#endif
 
 /* This scale factor will be changed to equalise the runtime of the
    benchmarks. */
@@ -99,7 +101,11 @@
 long int a[20][20], b[20], x[20];
 long int table[20][20];
 
+#if USE_VECTOR==0
 int ludcmp(int nmax, int n);
+#else
+int v_ludcmp(int nmax, int n);
+#endif
 
 
 /*  static double fabs(double n) */
@@ -113,7 +119,6 @@ int ludcmp(int nmax, int n);
 
 /* Write to CHKERR from BENCHMARK to ensure calls are not optimised away.  */
 volatile int chkerr;
-
 
 int verify_benchmark (int res)
 {
@@ -147,7 +152,6 @@ int benchmark (void)
 
 }
 
-
 static int __attribute__ ((noinline)) benchmark_body (int rpt)
 {
     int  k;
@@ -174,13 +178,64 @@ static int __attribute__ ((noinline)) benchmark_body (int rpt)
         }
 
         /*  chkerr = ludcmp(nmax, n, eps); */
+#if USE_VECTOR==0
         chkerr = ludcmp(nmax,n);
+#else
+        chkerr = v_ludcmp(nmax,n);
+#endif
     }
 
     return chkerr;
 }
 
+#if USE_VECTOR==0
 int ludcmp(int nmax, int n)
+{
+    int i, j, k;
+    long w, y[100];
+
+    /* if(n > 99 || eps <= 0.0) return(999); */
+    for(i = 0; i < n; i++)
+    {
+        /* if(fabs(a[i][i]) <= eps) return(1); */
+        for(j = i+1; j <= n; j++) /* triangular loop vs. i */
+        {
+            w = a[j][i];
+            /* if(i != 0) */           /* sub-loop is conditional, done
+                                          all iterations except first of the
+                                          OUTER loop */
+            for(k = 0; k < i; k++)
+                w -= a[j][k] * a[k][i];
+            a[j][i] = w / a[i][i];
+        }
+        for(j = i+1; j <= n; j++) /* triangular loop vs. i */
+        {
+            w = a[i+1][j];
+            for(k = 0; k <= i; k++) /* triangular loop vs. i */
+                w -= a[i+1][k] * a[k][j];
+            a[i+1][j] = w;
+        }
+    }
+    y[0] = b[0];
+    for(i = 1; i <= n; i++)       /* iterates n times */
+    {
+        w = b[i];
+        for(j = 0; j < i; j++)    /* triangular sub loop */
+            w -= a[i][j] * y[j];
+        y[i] = w;
+    }
+    x[n] = y[n] / a[n][n];
+    for(i = n-1; i >= 0; i--)     /* iterates n times */
+    {
+        w = y[i];
+        for(j = i+1; j <= n; j++) /* triangular sub loop */
+            w -= a[i][j] * x[j];
+        x[i] = w / a[i][i] ;
+    }
+    return(0);
+}
+#else
+int v_ludcmp(int nmax, int n)
 {
     size_t vl = vsetvl_e32m4(n+1);
     vint32m4_t vu, vv, vz;
@@ -195,16 +250,16 @@ int ludcmp(int nmax, int n)
         for (j = 0; j < i; j++)
         {
             value = a[j][i];
-            vv = vlse32_v_i32m4(&a[0][j], nmax * sizeof(long int), vl);
+            vv = vlse32_v_i32m4(&a[0][j], sizeof(a[0]), vl);
             vv = vslidedown_vx_i32m4_ta(vv, vv, i + 1, vl);
             vv = vmul_vx_i32m4_ta(vv, value, vl);
             vu = vadd_vv_i32m4_ta(vu, vv, vl);
         }
-        vv = vlse32_v_i32m4(&a[0][i], nmax * sizeof(long int), vl);
+        vv = vlse32_v_i32m4(&a[0][i], sizeof(a[0]), vl);
         vv = vslidedown_vx_i32m4_ta(vv, vv, i + 1, vl);
         vu = vsub_vv_i32m4_ta(vv, vu, vl);
         vu = vdiv_vx_i32m4_ta(vu, a[i][i], vl);
-        vsse32_v_i32m4(&a[i+1][i], nmax * sizeof(long int), vu, vl);
+        vsse32_v_i32m4(&a[i+1][i], sizeof(a[0]), vu, vl);
 
         vu = vmv_v_x_i32m4(0, vl);
         for (j = 0; j < i + 1; j++)
@@ -221,79 +276,6 @@ int ludcmp(int nmax, int n)
         vse32_v_i32m4(&a[i+1][i+1], vu, vl);
     }
 
-    /*
-       y[0] = b[0];
-       for(i = 1; i <= n; i++)       // iterates n times //
-       {
-       w = b[i];
-       for(j = 0; j < i; j++)    // triangular sub loop //
-       w -= a[i][j] * y[j];
-       y[i] = w;
-       }
-       */
-
-    i = 0;
-    table[0][i] = b[0];
-    for(j = i+1; j <= n; j++)       // iterates n times //
-    {
-        long int val = 0;
-        for(k = 0; k < j; k++)    // triangular sub loop //
-        {    
-            printf("(%d, %d) x (%d, %d) | ", j, k, k, i);
-            val += a[j][k] * table[k][i];
-        }
-        printf("= (%d, %d)\n", j, i);
-        table[j][i] = val + b[j];
-    }
-
-    /*
-       vu = vle32_v_i32m4(b, vl);
-       for (i = 0; i < n; i++)
-       {
-    // value = table[i][0]; ??
-    vv = vlse32_v_i32m4(&a[0][i], nmax * sizeof(long int), vl);
-    vv = vmul_vx_i32m4_ta(vv, value, vl);
-
-
-    vz = vmv_v_x_i32m4(value, vl);
-    // ? slide vz
-    vv = vmul_vv_i32m4_ta(vv, vz, vl);
-    vu = vadd_vv_i32m4_ta(vu, vv, vl);
-    v = vslide1up_vx_i32m4_ta(vw, 0, vl);
-    }
-    */
-
-
-    /*
-       x[n] = y[n] / a[n][n];
-       for(i = n-1; i >= 0; i--)     // iterates n times //
-       {
-       w = y[i];
-       for(j = i+1; j <= n; j++) // triangular sub loop //
-       w -= a[i][j] * x[j];
-       x[i] = w / a[i][i] ;
-       }
-       */
-
-    printf("--SECOND--\n");
-    i = 0;
-    table[n][i] = table[n][i] / a[n][n];
-    for(j = 0 ; j < n; j++)     // iterates n times //
-    {
-        long int val = 0;
-        for(k = n; k >= j+1; k--) // triangular sub loop //
-        {
-            printf("(%d, %d) x (%d, %d) | ", j, k, k, i);
-            val += a[j][k] * table[k][i];
-        }
-        printf("= (%d, %d)\n", j, i);
-        table[j][i] = (table[j][i] - val) / a[j][j] ;
-    }
-
-    exit(0);
-
-    //size_t vl;
-    vl = vsetvl_e32m4(n + 1);
     vint32m4_t vw = vle32_v_i32m4(b, vl);
     vint32m4_t vy = vmv_v_x_i32m4_ta(0, vl);
     vw = vslide1down_vx_i32m4_ta(vw, 0, vl);
@@ -340,6 +322,7 @@ int ludcmp(int nmax, int n)
 
     return(0);
 }
+#endif
 
 
 /*
